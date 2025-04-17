@@ -1,7 +1,7 @@
 {
-  "name": "@shiba-majiro/slip-vertify",
-  "version": "1.0.0",
-  "description": "Slip vertify for thai people with rdcw api",
+  "name": "@shiba-majiro/slip-verify",
+  "version": "1.0.2",
+  "description": "Slip verify for thai people with rdcw api",
   "homepage": "https://github.com/Shiromajibai/Slip-Vertify#readme",
   "bugs": {
     "url": "https://github.com/Shiromajibai/Slip-Vertify/issues"

@@ -99,7 +99,7 @@ class SlipVertify {
         }
         return Promise.reject(new Error("Invalid payload"));
     }
-    async vertify(data: InquiryResponse | InquiryError | string, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
+    async verify(data: InquiryResponse | InquiryError | string, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
         if(typeof data === "string") {
             data = await this.inquiry(data);
         }
@@ -116,7 +116,7 @@ class SlipVertify {
         const receiverAccountNumber = this.getReceiverAccountNumber(data);
         return this.matchAccountNumber(accountNumber, receiverAccountNumber || "");
     }
-    async slipVertify(file: Buffer | string | ArrayBuffer, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
+    async slipVerify(file: Buffer | string | ArrayBuffer, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
         if(typeof file === "string") {
             file = isBun ? await Bun.file(file).arrayBuffer() : fs.readFileSync(file);
         }
@@ -133,10 +133,10 @@ class SlipVertify {
             const transaction = slipVerify(decodedQR.data);
             if(!transaction) return false; 
             const inquiry = await this.inquiry(transaction.transRef);
-            return this.vertify(inquiry, accountNumber, accountName, bankCode, isCache);
+            return this.verify(inquiry, accountNumber, accountName, bankCode, isCache);
         }else{
             const inquiry = await this.inquiry(file);
-            return this.vertify(inquiry, accountNumber, accountName, bankCode, isCache);
+            return this.verify(inquiry, accountNumber, accountName, bankCode, isCache);
         }
     }
 }
