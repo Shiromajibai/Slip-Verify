@@ -2,16 +2,22 @@ import axios, { AxiosError, AxiosInstance} from "axios";
 import fs from "fs";
 import { Jimp } from "jimp";
 import jsQR from "jsqr";
-import { InquiryError, BankCode, BankType, InquiryResponse } from "./types";
+import { InquiryError, BankCode, BankType, InquiryResponse, ClientOptions } from "./types";
 import { slipVerify  } from 'promptparse/validate'
+
+const isBun = typeof globalThis.Bun !== "undefined";
 
 class SlipVertify {
     private client: AxiosInstance;
-    constructor(private readonly clientId: string, private readonly clientSecret: string) {
+    private version: "v1" | "v2";
+    constructor(private readonly clientId: string, private readonly clientSecret: string, opts: ClientOptions = {
+        version: "v2"
+    }) {
+        this.version = opts.version;
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.client = axios.create({
-            baseURL: "https://suba.rdcw.co.th/v2",
+            baseURL: `https://suba.rdcw.co.th/${opts.version}`,
             headers: {
                 "Content-Type": "application/json",
             },
@@ -63,48 +69,75 @@ class SlipVertify {
 
         return cenNumber.toLowerCase() === modifiedNumber2;
     }
-    public async inquiry(transactionId: string) {
-        const response = await this.client.post<InquiryResponse>('/inquiry', {
-            payload: transactionId
-        }).catch((error : AxiosError<InquiryError>) => {
-            if(error.response) {
-                return error.response;
-            }
-            return Promise.reject(error);
-        })
-        return response.data;
+    public async inquiry(payload: string | Buffer | ArrayBuffer) {
+        if(typeof payload === "string" && this.version === "v1") {
+            const response = await this.client.post<InquiryResponse>('/inquiry', {
+                payload: payload
+            }).catch((error : AxiosError<InquiryError>) => {
+                if(error.response) {
+                    return error.response;
+                }
+                return Promise.reject(error);
+            })
+            return response.data;
+        }else if(Buffer.isBuffer(payload) && this.version === "v2") {
+            const { fileTypeFromBuffer } = await import('file-type');
+            const fileType = await fileTypeFromBuffer(new Uint8Array(payload));
+            if(!fileType) return Promise.reject(new Error("Invalid file type"));
+            if(!fileType.mime.startsWith("image/"))  return Promise.reject(new Error("Invalid file type"));
+            const response = await this.client.post<InquiryResponse>('/inquiry', payload, {
+                headers: {
+                    "Content-Type": fileType?.mime || "application/octet-stream"
+                }
+            }).catch((error : AxiosError<InquiryError>) => {
+                if(error.response) {
+                    return error.response;
+                }
+                return Promise.reject(error);
+            })
+            return response.data;
+        }
+        return Promise.reject(new Error("Invalid payload"));
     }
-    async vertify(transactionId: string, accountNumber: string, accountName: string, bankCode: BankCode, accountType: BankType, isCache = false): Promise<boolean> {
-        const response = await this.inquiry(transactionId);
-        if ('code' in response) return false;
-        if (!response.valid) return false;
-        if (isCache && response.isCached) return false;
+    async vertify(data: InquiryResponse | InquiryError | string, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
+        if(typeof data === "string") {
+            data = await this.inquiry(data);
+        }
+        if ('code' in data) return false;
+        if (!data.valid) return false;
+        if (isCache && data.isCached) return false;
 
-        const receiverName = response.data.receiver.displayName;
+        const receiverName = data.data.receiver.displayName;
         const [_, name] = receiverName.split(" ");
         if (name !== accountName) return false;
+        
+        if (bankCode !== BankCode.PROMPTPAY && data.data.receivingBank !== bankCode) return false;
 
-        if (response.data.receivingBank !== bankCode && accountType === "BANKAC") return false;
-
-        const receiverAccountNumber = this.getReceiverAccountNumber(response);
+        const receiverAccountNumber = this.getReceiverAccountNumber(data);
         return this.matchAccountNumber(accountNumber, receiverAccountNumber || "");
     }
-    async slipVertify(file: Buffer | string, accountNumber: string, accountName: string, bankCode: BankCode, accountType: BankType, isCache = false): Promise<boolean> {
+    async slipVertify(file: Buffer | string | ArrayBuffer, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
         if(typeof file === "string") {
-            file = fs.readFileSync(file);
+            file = isBun ? await Bun.file(file).arrayBuffer() : fs.readFileSync(file);
         }
-        // Credit https://dev.to/jdg2896/how-to-reliably-read-qr-codes-in-nodejs-502i tsym💓
-        const image = await Jimp.read(file);
-        const imageData = {
-            data: new Uint8ClampedArray(image.bitmap.data),
-            width: image.bitmap.width,
-            height: image.bitmap.height,
-        };
-        const decodedQR = jsQR(imageData.data, imageData.width, imageData.height);
-        if (!decodedQR) return false;
-        const transaction = slipVerify(decodedQR.data);
-        if(!transaction) return false; 
-        return this.slipVertify(transaction.transRef, accountNumber, accountName, bankCode, accountType, isCache);
+        if(this.version === "v1") {
+            // Credit https://dev.to/jdg2896/how-to-reliably-read-qr-codes-in-nodejs-502i tsym💓
+            const image = await Jimp.read(file);
+            const imageData = {
+                data: new Uint8ClampedArray(image.bitmap.data),
+                width: image.bitmap.width,
+                height: image.bitmap.height,
+            };
+            const decodedQR = jsQR(imageData.data, imageData.width, imageData.height);
+            if (!decodedQR) return false;
+            const transaction = slipVerify(decodedQR.data);
+            if(!transaction) return false; 
+            const inquiry = await this.inquiry(transaction.transRef);
+            return this.vertify(inquiry, accountNumber, accountName, bankCode, isCache);
+        }else{
+            const inquiry = await this.inquiry(file);
+            return this.vertify(inquiry, accountNumber, accountName, bankCode, isCache);
+        }
     }
 }
 

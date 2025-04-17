@@ -40,7 +40,9 @@ export enum BankCode {
 }
 
 export type BankType = "NATID" | "BANKAC";
-
+export type ClientOptions = {
+    version: "v1" | "v2"
+}
 export type InquiryResponse = {
   valid: boolean;
   data: {

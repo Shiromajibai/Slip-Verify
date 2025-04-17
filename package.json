@@ -15,7 +15,9 @@
   "type": "commonjs",
   "main": "dist/index.js",
   "dependencies": {
+    "@types/bun": "^1.2.10",
     "axios": "^1.8.4",
+    "file-type": "^20.4.1",
     "jimp": "^1.6.0",
     "jsqr": "^1.4.0",
     "promptparse": "^1.4.0"

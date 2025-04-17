@@ -36,3 +36,4 @@ yarn-error.log*
 *.temp 
 
 test.js
+image/*
