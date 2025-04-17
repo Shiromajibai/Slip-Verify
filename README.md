@@ -8,7 +8,7 @@ npm install @shiba-majiro/slip-verify
 ```
 
 # Usage
-## Vertify with a transaction id✅
+## Verify with a transaction id✅
 ```typescript
 import SlipVertify, { BankCode } from '@shiba-majiro/slip-verify';
 
@@ -23,7 +23,7 @@ const isValid = await slipVertify.slipVerify(
 );
 ```
 
-## Vertify with a file or buffer 🖼️
+## Verify with a file or buffer 🖼️
 ```typescript
 import SlipVertify, { BankCode } from '@shiba-majiro/slip-vertify';
 
