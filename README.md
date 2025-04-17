@@ -1,4 +1,4 @@
-# Slip Vertify📃
+# Slip Verify📃
 
 A library for verifying Thai bank transfer slips using the RDCW API📦
 
