@@ -19,6 +19,9 @@ export class SlipVertify {
                     payload
                 }),
                 method: "POST",
+                headers: {
+                    "Authorization": `Basic ${Buffer.from(this.clientId + ":" + this.clientSecret, "utf-8").toString("base64")}`
+                }
             })
             const data = (await response.json()) as  (InquiryResponse | InquiryError);
             return data
@@ -37,8 +40,11 @@ export class SlipVertify {
                 method: "POST",
                 body: body,
                 headers: typeof body == "string" ? {
-                    "Content-Type": "application/json"
-                } : {}
+                    "Content-Type": "application/json",
+                    "Authorization": `Basic ${Buffer.from(this.clientId + ":" + this.clientSecret, "utf-8").toString("base64")}`
+                } : {
+                    "Authorization": `Basic ${Buffer.from(this.clientId + ":" + this.clientSecret, "utf-8").toString("base64")}`
+                }
             })
             const data = (await response.json()) as (InquiryResponse | InquiryError)
             return data
