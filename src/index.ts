@@ -94,7 +94,7 @@ export class SlipVertify {
         return cenNumber.toLowerCase() === modifiedNumber2;
     }
 
-    async verify(data: InquiryResponse | InquiryError, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
+    verify(data: InquiryResponse | InquiryError, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): boolean {
         if ('code' in data) return false;
         if (!data.valid) return false;
         if (isCache && data.isCached) return false;
