@@ -1,14 +1,7 @@
-import axios, { AxiosError, AxiosInstance} from "axios";
 import fs from "fs";
-import { Jimp } from "jimp";
-import jsQR from "jsqr";
-import { InquiryError, BankCode, BankType, InquiryResponse, ClientOptions } from "./types";
-import { slipVerify  } from 'promptparse/validate'
+import { InquiryError, BankCode, InquiryResponse, ClientOptions } from "./types";
 
-const isBun = typeof globalThis.Bun !== "undefined";
-
-class SlipVertify {
-    private client: AxiosInstance;
+export class SlipVertify {
     private version: "v1" | "v2";
     constructor(private readonly clientId: string, private readonly clientSecret: string, opts: ClientOptions = {
         version: "v2"
@@ -16,16 +9,41 @@ class SlipVertify {
         this.version = opts.version;
         this.clientId = clientId;
         this.clientSecret = clientSecret;
-        this.client = axios.create({
-            baseURL: `https://suba.rdcw.co.th/${opts.version}`,
-            headers: {
-                "Content-Type": "application/json",
-            },
-            auth: {
-                username: this.clientId,
-                password: this.clientSecret,
-            },
-        })
+    }
+
+    public async inquiry(payload: string | Buffer | ArrayBuffer) {
+        if(typeof payload === "string" || this.version === "v1") {
+            if(typeof payload !== "string") return Promise.reject(new Error("Invalid payload"));
+            const response = await fetch(`https://suba.rdcw.co.th/${this.version}/inquiry`, {
+                body: JSON.stringify({
+                    payload
+                }),
+                method: "POST",
+            })
+            const data = (await response.json()) as  (InquiryResponse | InquiryError);
+            return data
+        }else if(this.version === "v2") {
+            let body : string | FormData
+            if(typeof payload == "string"){
+                body = JSON.stringify({
+                    payload
+                })
+            } else {
+                body = new FormData()
+                const blob = new Blob([payload], { type: "application/octet-stream" });
+                body.set("file", blob)
+            }
+            const response = await fetch(`https://suba.rdcw.co.th/${this.version}/inquiry`, {
+                method: "POST",
+                body: body,
+                headers: typeof body == "string" ? {
+                    "Content-Type": "application/json"
+                } : {}
+            })
+            const data = (await response.json()) as (InquiryResponse | InquiryError)
+            return data
+        }
+        return Promise.reject(new Error("Invalid payload"));
     }
     private getReceiverAccountNumber(response: InquiryResponse) {
         if(response.data.receiver.proxy.value) {
@@ -69,40 +87,8 @@ class SlipVertify {
 
         return cenNumber.toLowerCase() === modifiedNumber2;
     }
-    public async inquiry(payload: string | Buffer | ArrayBuffer) {
-        if(typeof payload === "string" && this.version === "v1") {
-            const response = await this.client.post<InquiryResponse>('/inquiry', {
-                payload: payload
-            }).catch((error : AxiosError<InquiryError>) => {
-                if(error.response) {
-                    return error.response;
-                }
-                return Promise.reject(error);
-            })
-            return response.data;
-        }else if(Buffer.isBuffer(payload) && this.version === "v2") {
-            const { fileTypeFromBuffer } = await import('file-type');
-            const fileType = await fileTypeFromBuffer(new Uint8Array(payload));
-            if(!fileType) return Promise.reject(new Error("Invalid file type"));
-            if(!fileType.mime.startsWith("image/"))  return Promise.reject(new Error("Invalid file type"));
-            const response = await this.client.post<InquiryResponse>('/inquiry', payload, {
-                headers: {
-                    "Content-Type": fileType?.mime || "application/octet-stream"
-                }
-            }).catch((error : AxiosError<InquiryError>) => {
-                if(error.response) {
-                    return error.response;
-                }
-                return Promise.reject(error);
-            })
-            return response.data;
-        }
-        return Promise.reject(new Error("Invalid payload"));
-    }
-    async verify(data: InquiryResponse | InquiryError | string, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
-        if(typeof data === "string") {
-            data = await this.inquiry(data);
-        }
+
+    async verify(data: InquiryResponse | InquiryError, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
         if ('code' in data) return false;
         if (!data.valid) return false;
         if (isCache && data.isCached) return false;
@@ -116,30 +102,18 @@ class SlipVertify {
         const receiverAccountNumber = this.getReceiverAccountNumber(data);
         return this.matchAccountNumber(accountNumber, receiverAccountNumber || "");
     }
-    async slipVerify(file: Buffer | string | ArrayBuffer, accountNumber: string, accountName: string, bankCode: BankCode, isCache = false): Promise<boolean> {
-        if(typeof file === "string") {
-            file = isBun ? await Bun.file(file).arrayBuffer() : fs.readFileSync(file);
+
+    async slipVertify(transaction: string | Buffer | ArrayBuffer, accountNumber: string, accountName: string, bankCode: BankCode, checkCache = false) {
+        const isBun = process.versions.bun
+        let transactions = transaction
+        if(typeof transaction == "string"){
+            const isPath = isBun && Bun.file(transaction).exists() || fs.existsSync(transaction)
+            if(isPath) transactions = isBun ? await Bun.file(transaction).arrayBuffer() : fs.readFileSync(transaction)
         }
-        if(this.version === "v1") {
-            // Credit https://dev.to/jdg2896/how-to-reliably-read-qr-codes-in-nodejs-502i tsym💓
-            const image = await Jimp.read(file);
-            const imageData = {
-                data: new Uint8ClampedArray(image.bitmap.data),
-                width: image.bitmap.width,
-                height: image.bitmap.height,
-            };
-            const decodedQR = jsQR(imageData.data, imageData.width, imageData.height);
-            if (!decodedQR) return false;
-            const transaction = slipVerify(decodedQR.data);
-            if(!transaction) return false; 
-            const inquiry = await this.inquiry(transaction.transRef);
-            return this.verify(inquiry, accountNumber, accountName, bankCode, isCache);
-        }else{
-            const inquiry = await this.inquiry(file);
-            return this.verify(inquiry, accountNumber, accountName, bankCode, isCache);
-        }
+        const inquiry = await this.inquiry(transactions)
+        const status = this.verify(inquiry, accountNumber, accountName, bankCode, checkCache)
+        return [status, inquiry]
     }
 }
 
-export default SlipVertify;
 export { BankCode };
